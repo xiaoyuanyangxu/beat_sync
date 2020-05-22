@@ -91,11 +91,6 @@ func BeatGenerator() beep.Streamer {
 				v = 1.0
 				if beatOn == false {
 					beatsCount++
-					/*
-						if beats_count%10 == 1 {
-							fmt.Printf("Beat: #beats=%v #samples=%v offset=%v/%v time=%v\n", beats_count, n_samples, current_offset, global_offset, time.Now())
-						}
-					*/
 					if beatsCount%syncPeriodInBeats == 0 {
 						var cTimeShift int64 = 0
 						mux.Lock()
