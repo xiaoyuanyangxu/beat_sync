@@ -1,10 +1,9 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"math"
-	"os"
-	"strconv"
 	"sync"
 	"time"
 
@@ -13,139 +12,138 @@ import (
 	"github.com/faiface/beep/speaker"
 )
 
-var sample_rate int64 = 44100
-var n_samples int64 = 0
-var beats_count int64 = 0
-var beats_per_minute int64 = 120
-var beats_separation int64 = 0 //sample_rate * 60 / beats_per_minute
-var beat_width int64 = 1
-var beat_on = false
+var sampleRate int64 = 44100
+var nSamples int64 = 0
+var beatsCount int64 = 0
+var beatsPerMinute int64 = 120
+var beatsSeparation int64 = 0
+var beatWidth int64 = 1
+var beatOn = false
 
 var mux sync.Mutex
-var global_offset int64 = 0
-var global_time_shift int64 = 0
-var current_time_shift int64 = 0
-var error_estimation float64 = 0.0
+var globalTimeShift int64 = 0
+var currentTimeShift int64 = 0
+var errorEstimation float64 = 0.0
 
-var sync_period_in_beats int64 = 20 //beats_per_minute
-var syncd_time time.Time
+var syncPeriodInBeats int64 = 20
+var syncdTime time.Time
 var nano int64 = 1000 * 1000 * 1000
-var skipped_adap_period = 0
-var max_skip_period = 5
-var max_error_to_skip = 5.0
+var skippedAdapPeriod = 0
+var maxSkipPeriod = 5
+var maxErrorToSkip = 5
 
-func time_sync() (int64, int64, time.Time, error) {
+var nTPRequestTimePeriodSec = 20
+var nTPRequestPerPeriod = 1
+var nTPServer = "0.es.pool.ntp.org"
+
+func timeSync() (int64, int64, time.Time, error) {
 	var acc time.Duration
 
-	n := 1 // ntp sync period
-	//fmt.Print("Progress: ")
-	for i := 0; i < n; i++ {
-		response, err := ntp.Query("0.es.pool.ntp.org")
+	for i := 0; i < nTPRequestPerPeriod; i++ {
+		response, err := ntp.Query(nTPServer)
 		if err != nil {
 			return 0, 0, time.Now(), err
 		}
 		time.Sleep(1 * time.Second)
-		//fmt.Print(n-i+1, ".")
 		acc += response.ClockOffset
 	}
 
-	t := time.Now().Add(time.Duration(acc.Nanoseconds()/int64(n)) * time.Nanosecond)
+	t := time.Now().Add(time.Duration(acc.Nanoseconds()/int64(nTPRequestPerPeriod)) * time.Nanosecond)
 
-	beat_w := float64(sample_rate) / float64(nano)
-	offset := int64((float64(t.Second())*float64(nano) + float64(t.Nanosecond())) * beat_w)
+	beatWidth := float64(sampleRate) / float64(nano)
+	offset := int64((float64(t.Second())*float64(nano) + float64(t.Nanosecond())) * beatWidth)
 
-	return offset, acc.Nanoseconds(), t, nil
+	return offset, acc.Nanoseconds() / int64(nTPRequestPerPeriod), t, nil
 }
 
-func syncup_loop() {
+func syncupLoop() {
 	for {
-		_, timeShift, _, err := time_sync()
-		sleep_time := 20 // Adapt period
+		_, timeShift, _, err := timeSync()
+		sleepTime := nTPRequestTimePeriodSec
 		if err != nil {
 			fmt.Println("\tError in getting NTP clock")
-			sleep_time = 5
+			sleepTime = nTPRequestTimePeriodSec / 2
 		} else {
 			var currentTimeShift int64
 			mux.Lock()
-			currentTimeShift = global_time_shift
+			currentTimeShift = globalTimeShift
 			mux.Unlock()
 
 			timeShift = int64(float64(currentTimeShift)*0.5 + float64(timeShift)*0.5)
 			/*
 				fmt.Println("\t------------------")
-				fmt.Println("\tOffset:", offset, float64(offset)/float64(sample_rate), "seconds")
-				fmt.Println("\tNew Time Shift:", timeShift, " current shift:", global_time_shift)
+				fmt.Println("\tNew Time Shift:", timeShift)
 				fmt.Println("\t------------------")
 			*/
 			mux.Lock()
-			global_time_shift = timeShift
+			globalTimeShift = timeShift
 			mux.Unlock()
 		}
-		time.Sleep(time.Duration(sleep_time) * time.Second)
+		time.Sleep(time.Duration(sleepTime) * time.Second)
 	}
 }
 
-func Noise() beep.Streamer {
+func BeatGenerator() beep.Streamer {
 	return beep.StreamerFunc(func(samples [][2]float64) (n int, ok bool) {
 		for i := range samples {
 			v := 0.0
-			if (n_samples % beats_separation) < beat_width {
+			if (nSamples % beatsSeparation) < beatWidth {
 				v = 1.0
-				if beat_on == false {
-					beats_count++
+				if beatOn == false {
+					beatsCount++
 					/*
 						if beats_count%10 == 1 {
 							fmt.Printf("Beat: #beats=%v #samples=%v offset=%v/%v time=%v\n", beats_count, n_samples, current_offset, global_offset, time.Now())
 						}
 					*/
-					if beats_count%sync_period_in_beats == 0 {
-						var currentTimeShift int64 = 0
+					if beatsCount%syncPeriodInBeats == 0 {
+						var cTimeShift int64 = 0
 						mux.Lock()
-						currentTimeShift = global_time_shift
+						cTimeShift = globalTimeShift
 						mux.Unlock()
 
-						diff := float64(currentTimeShift-current_time_shift) / float64(nano)
+						diff := float64(cTimeShift-currentTimeShift) / float64(nano)
 						errorEstimatted := math.Abs(diff) * 1000.0
 
-						if errorEstimatted < max_error_to_skip || skipped_adap_period >= max_skip_period {
-							if skipped_adap_period > max_skip_period {
-								fmt.Printf(">>> Let force adapt after %v skipped periods\n", skipped_adap_period)
+						if errorEstimatted < float64(maxErrorToSkip) || skippedAdapPeriod >= maxSkipPeriod {
+							if skippedAdapPeriod > maxSkipPeriod {
+								fmt.Printf(">>> Let force adapt after %v skipped periods\n", skippedAdapPeriod)
 							}
-							skipped_adap_period = 0
-							if math.Abs(diff) > 1.0/float64(sample_rate) {
-								shift := diff * float64(sample_rate)
-								error_estimation = errorEstimatted
+							skippedAdapPeriod = 0
+							if math.Abs(diff) > 1.0/float64(sampleRate) {
+								shift := diff * float64(sampleRate)
+								errorEstimation = errorEstimatted
 
 								fmt.Printf(">> ERROR=~%0.1fms Change: value=%v #beats=%v #samples=%v time=%v\n",
-									error_estimation,
+									errorEstimation,
 									int64(shift),
-									beats_count,
-									n_samples,
+									beatsCount,
+									nSamples,
 									time.Now().Format("2006-01-02T15:04:05"))
 
-								n_samples = n_samples + int64(shift)
-								current_time_shift = currentTimeShift
+								nSamples = nSamples + int64(shift)
+								currentTimeShift = cTimeShift
 							}
 						} else {
-							skipped_adap_period++
-							fmt.Printf(">>> Let skip this adapt period, error is too high %0.1f/%0.1fms #skipped=%v/%v\n",
+							skippedAdapPeriod++
+							fmt.Printf(">>> Let skip this adapt period, error is too high %0.1f/%dms #skipped=%v/%v\n",
 								errorEstimatted,
-								max_error_to_skip,
-								skipped_adap_period,
-								max_skip_period)
+								maxErrorToSkip,
+								skippedAdapPeriod,
+								maxSkipPeriod)
 						}
 
 					}
 				}
-				beat_on = true
+				beatOn = true
 
 			} else {
-				beat_on = false
+				beatOn = false
 
 			}
 			samples[i][0] = v
 			samples[i][1] = v
-			n_samples++
+			nSamples++
 		}
 		return len(samples), true
 	})
@@ -153,53 +151,33 @@ func Noise() beep.Streamer {
 
 func main() {
 
-	if len(os.Args) >= 2 {
-		i, err := strconv.Atoi(os.Args[1])
-		if err != nil {
-			fmt.Println("Error in parsing Frequency parameter")
-			fmt.Printf("Usage: %v FREQUENCY(Beats/Min) MAX_ERROR_TO_SKIP(ms)\n", os.Args[0])
-			return
-		} else {
-			beats_per_minute = int64(i)
-		}
+	flag.Int64Var(&beatsPerMinute, "frequency", 200, "Frequency in #Beats/Min. Default=200")
+	flag.IntVar(&maxErrorToSkip, "max_error_to_skip", 5, "Maximum error (in ms) that can tolerate in Adapt Mechanism. Default=5ms")
+	flag.StringVar(&nTPServer, "ntp_server", "0.es.pool.ntp.org", "NTP server to use. Default=0.es.pool.ntp.org")
+	flag.Parse()
 
-		if len(os.Args) > 2 {
-			e, err := strconv.Atoi(os.Args[2])
-			if err != nil {
-				fmt.Println("Error in parsing Error parameter")
-				fmt.Printf("Usage: %v FREQUENCY(Beats/Min) MAX_ERROR_TO_SKIP(ms)\n", os.Args[0])
-				return
+	beatsSeparation = sampleRate * 60 / beatsPerMinute
 
-			}
-			max_error_to_skip = float64(e)
-		}
-	}
-	beats_separation = sample_rate * 60 / beats_per_minute
-
-	sr := beep.SampleRate(sample_rate)
+	sr := beep.SampleRate(sampleRate)
 	speaker.Init(sr, sr.N(time.Second))
 
 	done := make(chan bool)
-	fmt.Println("Frequency:", beats_per_minute, " Max Error to Skip:", int64(max_error_to_skip), "ms")
+	fmt.Println("Frequency:", beatsPerMinute, " Max Error to Skip:", int64(maxErrorToSkip), "ms")
 	fmt.Println("Sync-up the clock, it may take several seconds")
 
 	var err error
 	var timeShift int64
-	global_offset, timeShift, _, err = time_sync()
+	nSamples, timeShift, _, err = timeSync()
 	if err != nil {
 		fmt.Println("Error in getting NTP clock")
 		return
 	}
-	n_samples = global_offset
-	global_time_shift = timeShift
-	current_time_shift = global_time_shift
+	globalTimeShift = timeShift
+	currentTimeShift = globalTimeShift
 
-	go syncup_loop()
+	go syncupLoop()
 
-	speaker.Play(Noise())
+	speaker.Play(BeatGenerator())
 
-	/*speaker.Play(beep.Seq(beep.Take(sr.N(5*time.Second), Noise())), beep.Callback(func() {
-		done <- true
-	}))) */
-	<-done
+	<-done // this will block the application
 }
