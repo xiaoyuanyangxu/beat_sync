@@ -2,10 +2,10 @@
 
 BeatSync is a simple GoLang application to generate a synchronized Beat signal. It is a synchronized metronome.
 
-The BestSync sync beat in minutes basis. The first beat of all applicaitons start the begining of Minute period. Periodically, it also
-perform a resync-up task (the Adapt Mechanims) to adapt the beat moment.
+The BestSync sync beats in minutes basis. The first beat of all running applications starts the begining of Minute period. Periodically, it also
+perform a resync-up task (the Adapt Mechanim) to adapt the beat moment.
 
-The Adapt Mechanim compute, periodically each 20, the time-shift of the local machine respect to the NTP server.  It perform a moving average with the previous value and generate the time-shift. The new time-shift value will be used to adapt the beat moment. If the time-shift is larger than max_error_to_skip, it will consider it as a error in NTP. If the error persist for 5 period, the it will also take it as new value and adapt. 
+The Adapt Mechanim computes, periodically each 20 seconds, the time-shift of the local machine respect to the NTP server.  It perform a moving average with the previous value and generate the new time-shift. The new time-shift value will be used to adapt the beat moment. If the time-shift is larger than max_error_to_skip, it will consider it as a error in NTP. However, if the error persist for 5 period, the it will take it as new value and adapt. 
 
 ## Compile
 
@@ -29,9 +29,9 @@ make
 ```
 Usage of ./beat_sync:
   -frequency int
-    	Frequency in #Beats/Min. Default=200 (default 200)
+    	Frequency in #Beats/Min. (default 200)
   -max_error_to_skip int
-    	Maximum error (in ms) that can tolerate in Adapt Mechanism. Default=5ms (default 5)
+    	Maximum error (in ms) that can tolerate in Adapt Mechanism. (default 5)
   -ntp_server string
-    	NTP server to use. Default=0.es.pool.ntp.org (default "0.es.pool.ntp.org")
+    	NTP server to use. (default "0.es.pool.ntp.org")
 ```

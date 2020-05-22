@@ -151,9 +151,9 @@ func BeatGenerator() beep.Streamer {
 
 func main() {
 
-	flag.Int64Var(&beatsPerMinute, "frequency", 200, "Frequency in #Beats/Min. Default=200")
-	flag.IntVar(&maxErrorToSkip, "max_error_to_skip", 5, "Maximum error (in ms) that can tolerate in Adapt Mechanism. Default=5ms")
-	flag.StringVar(&nTPServer, "ntp_server", "0.es.pool.ntp.org", "NTP server to use. Default=0.es.pool.ntp.org")
+	flag.Int64Var(&beatsPerMinute, "frequency", 200, "Frequency in #Beats/Min.")
+	flag.IntVar(&maxErrorToSkip, "max_error_to_skip", 5, "Maximum error (in ms) that can tolerate in Adapt Mechanism.")
+	flag.StringVar(&nTPServer, "ntp_server", "0.es.pool.ntp.org", "NTP server to use.")
 	flag.Parse()
 
 	beatsSeparation = sampleRate * 60 / beatsPerMinute
